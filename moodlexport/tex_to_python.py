@@ -1,8 +1,6 @@
 
 
-from moodlexport.python_to_moodle import Category, Question
-from moodlexport.string_manager import isfield, cleanstr
-import moodlexport.string_manager as strtools
+from moodlexport.python_to_moodle import Category, Question, isfield, cleanstr
 
 from TexSoup import TexSoup
 from TexSoup.data import TexNode
@@ -27,22 +25,23 @@ def read_latex_question(latex_question):
             field = content.name # a string giving us the name of the option
             if isfield(field): # is it a field defined in DICT_DEFAULT_QUESTION_MOODLE ?
                 if field == 'answer': # cas un peu compliqué
+                    #print(content.args)
                     if len(content.args) == 1: # pas d'option donc faux par défaut
-                        answer_text = strtools.latex_to_html_cleaner(content.args[0].value)
-                        question.answer(answer_text, False)
+                        question.answer(content.args[0].value, False)
                     elif len(content.args) == 2: # optional value for grade percentage
-                        answer_text = strtools.latex_to_html_cleaner(content.args[1].value)
-                        question.answer(answer_text, content.args[0].value)
+                        question.answer(content.args[1].value, content.args[0].value)
+                    elif len(content.args) == 3:
+                        question.answer(content.args[1].value, content.args[0].value, content.args[2].value)
                 else: # general field, easy to manage
                     value = content.string # a string containing the value of the said option
                     getattr(question, field)(value)
             else: # annoying, certainly valid latex, most RISKY part of the code
                 text = text + str(content)
-    question.text(strtools.latex_to_html_cleaner(text))
+    question.text(cleanstr(text, raw=True))
     return question
 
 def read_latex_category(category_latex):
-    if len(category_latex.args) == 1: # we got a optional argument, it is the category name
+    if len(category_latex.args) == 1: # we got a optional argument for category name
         category = Category(category_latex.args[0].value)
         list_contents = list(category_latex.contents)[1:] # we skip the 1st content which should be option
     else:
@@ -52,12 +51,10 @@ def read_latex_category(category_latex):
     for content in list_contents:
         if isinstance(content, TexNode): # There should be just stuff like that
             field = str(content.name) # a string giving us the name of the option
-            if field == 'name': # don't compare with 'is' for some dark python reason. same content, but not identity
+            if field == 'name': # not is for some dark reason. same content, but not identity
                 category.name(content.string)
             elif field == 'description':
-                category.description(strtools.latex_to_html_cleaner(content.string))
-            elif field == 'path':
-                category.path(strtools.latex_to_html_cleaner(content.string))
+                category.description(content.string)
             elif field == 'question':
                 question = read_latex_question(content)
                 question.addto(category)
@@ -65,14 +62,11 @@ def read_latex_category(category_latex):
 
 def latextopython(file_name):
     # converts a latex file into a list of Category
-    with open(extension_checker(file_name,'tex'), 'r', encoding='utf-8') as file:
+    with open(file_name, 'r', encoding='utf-8') as file:
         latex = file.read()
-    # we clean the file from superfluous things, or operate conversions from latex to html
-    #question.text(cleanstr(text, raw=True)) # if we want to have more fancy text in moodle like with <p> it must be done here..
-    # we parse the text to extract all the information into our python structures
     soup = TexSoup(latex)
-    category_list = [] # The list of objects
-    category_latex_list = list(soup.find_all('category')) # the list of latex-soup
+    category_list = []
+    category_latex_list = list(soup.find_all('category'))
     if len(category_latex_list) > 0: # we list the categories and return them
         for category_latex in category_latex_list:
             category_list.append(read_latex_category(category_latex))
@@ -84,44 +78,17 @@ def latextopython(file_name):
         category_list = [category,]
     return category_list
 
-def latextomoodle(file_name=None, save_name = None):
+def latextomoodle(file_name, save_name = None):
     # converts a latex file into an XML file ready to export into Moodle
-    # if no file_name is given, parse the current directory and applies the function to every .tex files
-    if file_name is None:
-        import glob
-        for texfile in glob.glob("*.tex"):
-            latextomoodle(texfile)
-        return 
     category_list = latextopython(file_name)
     counter = 1
     for category in category_list:
         if save_name is None:
-            category.savexml()
+            category.save()
         else:
             if len(category_list) == 1:
                 string = save_name
             else:
-                string = save_name + '-' + str(counter)  
+                string = save_name + '_' + str(counter)  
                 counter = counter + 1              
-            category.savexml(string)
-
-def extension_checker(file_name, ext):
-    if file_name[-len(ext)-1:] != '.'+ext:
-        return file_name + '.'+ext
-    else:
-        return file_name
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            category.save(string)
