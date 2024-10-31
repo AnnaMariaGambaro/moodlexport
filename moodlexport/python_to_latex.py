@@ -1,7 +1,7 @@
 
-from moodlexport.python_to_moodle import Category, Question
-from moodlexport.string_manager import latex_protect, alias, savestr
+from moodlexport.python_to_moodle import Category, Question, latex_protect, alias, savestr
 
+import requests
 import os.path
 
 LATEX_PACKAGE_URL = "https://raw.githubusercontent.com/Guillaume-Garrigos/moodlexport/master/latex/latextomoodle.sty"
@@ -10,9 +10,6 @@ LATEX_PACKAGE_NAME = "latextomoodle"
 def latexfile_preamble(list_of_packages=[]):
     string = "\documentclass{article}\n"
     string += "\\usepackage{amsmath}\n"
-    string += "\\usepackage{amssymb}\n"
-    string += "\\usepackage{graphicx}\n"
-    
     for package in list_of_packages:
         string += latex_protect("\\usepackage{")+ package +"}\n"
     return string
@@ -41,41 +38,38 @@ def latexfile_environement(env_name, value, option=None):
 
 def latexfile_append_question(question): #Given a Question return the latex string
     content = ""
-    if question.structure['name']['isset']: # First the title
-        content += latexfile_command(alias('name'), question.get_name())
-    content += latex_protect(question.get_text()) + '\n'
-    option = question.get_type()
-    if question.has_answer():
+    content += latex_protect(question.structure['questiontext']['value']) + '\n'
+    option = question.structure['@type']['value']
+    if (option == "multichoice") and (question.structure['answer']['isset']):
         content += '\n'
-        for answer in question.get_answer():
-            content += latexfile_command('answer', answer.get_text(), str(answer.get_relativegrade()))
+        for answer in question.structure['answer']['value']:
+            content += latexfile_command('answer', answer['text'], str(answer['grade']))
     content += '\n'
     for field in question.structure:
-        if field not in ['@type', 'questiontext', 'answer', 'name']: # keep it for later/before
+        if field not in ['@type', 'questiontext', 'answer']: # keep it for later
             if question.structure[field]['isset']: # if default we dont print it
                 content += latexfile_command(alias(field), question.structure[field]['value'])
     return latexfile_environement('question', content, option)
 
 def latexfile_append_category(category): # Given a category return the latex string
     content = ""
-    description = category.get_description()
+    description = category.getdescription()
     if description != "":
         content += latexfile_command('description', description)
-    for question in category.get_question():
+    for question in category.question_objects:
         content += latexfile_append_question(question)
-    return latexfile_environement('category', content, category.get_name())
+    return latexfile_environement('category', content, category.getname())
 
-def latexfile_document(category):
-    import_latextomoodle()
-    content = latexfile_preamble([LATEX_PACKAGE_NAME])
+def latexfile_document(category, custom_package=True):
+    if custom_package:
+        content = latexfile_preamble([LATEX_PACKAGE_NAME])
+        if not os.path.isfile(LATEX_PACKAGE_NAME+'.sty') :
+            req = requests.get(LATEX_PACKAGE_URL)
+            savestr(req.text, LATEX_PACKAGE_NAME+'.sty')
+    else: 
+        content = latexfile_preamble()        
     content += latexfile_environement('document', latexfile_append_category(category))
     return content
     
-def import_latextomoodle():
-    # Importing a local template : idea taken from 
-    # https://stackoverflow.com/questions/6028000/how-to-read-a-static-file-from-inside-a-python-package
-    import pkgutil, io
-    if not os.path.isfile('latextomoodle.sty') :
-        string = pkgutil.get_data("moodlexport", "templates/latextomoodle.sty").decode()
-        savestr(string, 'latextomoodle.sty')
     
+
